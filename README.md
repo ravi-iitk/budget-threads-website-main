@@ -1,7 +1,7 @@
 # BudgetThreads website development
 
 *Automatically synced with your [v0.app](https://v0.app) deployments*
-
+Created and designed by ravipatar462@gmail.com
 [![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/ravipatar462-9179s-projects/v0-budget-threads-website-development)
 [![Built with v0](https://img.shields.io/badge/Built%20with-v0.app-black?style=for-the-badge)](https://v0.app/chat/projects/iNURj4y1Nmu)
 
