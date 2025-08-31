@@ -18,12 +18,9 @@ export function getSupabaseServer(cookies: {
   set(name: string, value: string, options: CookieOptions): void
 }) {
   if (serverClient) return serverClient
-  serverClient = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-    {
-      cookies,
-    },
-  )
+  // Prefer server-only vars; fall back to NEXT_PUBLIC_* if needed
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+  const anon = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+  serverClient = createServerClient(url, anon, { cookies })
   return serverClient
 }
