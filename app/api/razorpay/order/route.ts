@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server"
 import { cookies } from "next/headers"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseServer } from "@/lib/supabase"
 
 function encodeBasicAuth(id: string, secret: string) {
   return Buffer.from(`${id}:${secret}`).toString("base64")
@@ -12,27 +12,19 @@ const FRONT = 99
 const BACK = 119
 const SHIPMENT = 59
 
-// ✅ Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
-
-async function getCartFromDB(sid: string) {
-  console.log("👉 Fetching cart for SID:", sid)
-
+// 🔹 Helper to fetch cart from Supabase
+async function getCartFromSupabase(sid: string) {
+  const supabase = getSupabaseServer({
+    get: (n: string) => cookies().get(n) as any,
+    set: () => {},
+  })
   const { data, error } = await supabase
     .from("carts")
-    .select("items") // only need items column
-    .eq("sid", sid)
-    .single()
+    .select("items")
+    .eq("session_id", sid)
+    .maybeSingle()
 
-  if (error) {
-    console.error("❌ Supabase error:", error)
-    return []
-  }
-
-  console.log("🛒 Cart data from Supabase:", data)
+  if (error && error.code !== "PGRST116") throw error
   return data?.items || []
 }
 
@@ -40,21 +32,26 @@ export async function POST(req: NextRequest) {
   const keyId = process.env.RAZORPAY_KEY_ID
   const keySecret = process.env.RAZORPAY_KEY_SECRET
 
-  console.log("👉 [Razorpay] API called")
-  console.log("🔑 Keys present?", !!keyId, !!keySecret)
-
   if (!keyId || !keySecret) {
-    return new Response(JSON.stringify({ error: "Missing Razorpay keys" }), { status: 500 })
+    return new Response(
+      JSON.stringify({ error: "Missing Razorpay keys" }),
+      { status: 500 }
+    )
   }
 
   const jar = cookies()
   const sid = jar.get(COOKIE_NAME)?.value || "anon"
-  const cartItems = await getCartFromDB(sid)
+
+  // 🛒 Get cart from Supabase
+  const cartItems = await getCartFromSupabase(sid)
 
   let itemsTotal = 0
   for (const it of cartItems) {
     if (it?.meta && (it.meta.hasFront || it.meta.hasBack)) {
-      const perItem = BASE + (it.meta.hasFront ? FRONT : 0) + (it.meta.hasBack ? BACK : 0)
+      const perItem =
+        BASE +
+        (it.meta.hasFront ? FRONT : 0) +
+        (it.meta.hasBack ? BACK : 0)
       itemsTotal += perItem * (Number(it.qty) || 1)
     } else {
       itemsTotal += Number(it.price || 0) * (Number(it.qty) || 1)
@@ -64,6 +61,7 @@ export async function POST(req: NextRequest) {
   const amountINR = itemsTotal + (cartItems.length > 0 ? SHIPMENT : 0)
   const amountPaise = amountINR * 100
 
+  // 🧾 Order body
   const body = {
     amount: amountPaise,
     currency: "INR",
@@ -71,8 +69,7 @@ export async function POST(req: NextRequest) {
     receipt: `bt_${Date.now()}`,
   }
 
-  console.log("📦 Order body sent to Razorpay:", body)
-
+  // 🔗 Call Razorpay API
   const resp = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
     headers: {
@@ -84,15 +81,20 @@ export async function POST(req: NextRequest) {
 
   if (!resp.ok) {
     const t = await resp.text()
-    console.error("🔥 Razorpay API failed:", t)
-    return new Response(JSON.stringify({ error: "Razorpay order failed", detail: t }), { status: 500 })
+    return new Response(
+      JSON.stringify({ error: "Razorpay order failed", detail: t }),
+      { status: 500 }
+    )
   }
 
   const order = await resp.json()
-  console.log("✅ Razorpay order success:", order)
-
   return new Response(
-    JSON.stringify({ order, publicKey: keyId, amountINR, shipment: cartItems.length > 0 ? SHIPMENT : 0 }),
+    JSON.stringify({
+      order,
+      publicKey: keyId,
+      amountINR,
+      shipment: cartItems.length > 0 ? SHIPMENT : 0,
+    }),
     { status: 200 }
   )
 }
