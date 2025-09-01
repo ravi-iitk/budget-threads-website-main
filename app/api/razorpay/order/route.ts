@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       itemsTotal += Number(it.price || 0) * (Number(it.qty) || 1)
     }
   }
-  const amountINR = itemsTotal + (cartItems.length > 0 ? SHIPMENT : 0)
+  const amountINR = Math.max(1, itemsTotal + (cartItems.length > 0 ? SHIPMENT : 0))
   const amountPaise = amountINR * 100
 
   const body = {
