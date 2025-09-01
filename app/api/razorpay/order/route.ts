@@ -12,15 +12,36 @@ const FRONT = 99
 const BACK = 119
 const SHIPMENT = 59
 
-// ✅ Initialize Supabase client (uses your env variables)
+// ✅ Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // needs service role key for server-side
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+async function getCartFromDB(sid: string) {
+  console.log("👉 Fetching cart for SID:", sid)
+
+  const { data, error } = await supabase
+    .from("carts")
+    .select("items") // only need items column
+    .eq("sid", sid)
+    .single()
+
+  if (error) {
+    console.error("❌ Supabase error:", error)
+    return []
+  }
+
+  console.log("🛒 Cart data from Supabase:", data)
+  return data?.items || []
+}
 
 export async function POST(req: NextRequest) {
   const keyId = process.env.RAZORPAY_KEY_ID
   const keySecret = process.env.RAZORPAY_KEY_SECRET
+
+  console.log("👉 [Razorpay] API called")
+  console.log("🔑 Keys present?", !!keyId, !!keySecret)
 
   if (!keyId || !keySecret) {
     return new Response(JSON.stringify({ error: "Missing Razorpay keys" }), { status: 500 })
@@ -28,20 +49,10 @@ export async function POST(req: NextRequest) {
 
   const jar = cookies()
   const sid = jar.get(COOKIE_NAME)?.value || "anon"
-
-  // ✅ Fetch cart from Supabase instead of memory
-  const { data: cartItems, error } = await supabase
-    .from("carts")
-    .select("id, qty, price, meta")
-    .eq("session_id", sid)
-
-  if (error) {
-    console.error("❌ Supabase cart fetch error:", error.message)
-    return new Response(JSON.stringify({ error: "Cart fetch failed" }), { status: 500 })
-  }
+  const cartItems = await getCartFromDB(sid)
 
   let itemsTotal = 0
-  for (const it of cartItems || []) {
+  for (const it of cartItems) {
     if (it?.meta && (it.meta.hasFront || it.meta.hasBack)) {
       const perItem = BASE + (it.meta.hasFront ? FRONT : 0) + (it.meta.hasBack ? BACK : 0)
       itemsTotal += perItem * (Number(it.qty) || 1)
@@ -50,15 +61,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const amountINR = itemsTotal + ((cartItems?.length ?? 0) > 0 ? SHIPMENT : 0)
+  const amountINR = itemsTotal + (cartItems.length > 0 ? SHIPMENT : 0)
   const amountPaise = amountINR * 100
 
   const body = {
     amount: amountPaise,
     currency: "INR",
-    notes: { source: "BudgetThreads", items: String(cartItems?.length ?? 0) },
+    notes: { source: "BudgetThreads", items: String(cartItems.length) },
     receipt: `bt_${Date.now()}`,
   }
+
+  console.log("📦 Order body sent to Razorpay:", body)
 
   const resp = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
@@ -76,10 +89,10 @@ export async function POST(req: NextRequest) {
   }
 
   const order = await resp.json()
+  console.log("✅ Razorpay order success:", order)
+
   return new Response(
-    JSON.stringify({ order, publicKey: keyId, amountINR, shipment: (cartItems?.length ?? 0) > 0 ? SHIPMENT : 0 }),
+    JSON.stringify({ order, publicKey: keyId, amountINR, shipment: cartItems.length > 0 ? SHIPMENT : 0 }),
     { status: 200 }
   )
 }
-
-
