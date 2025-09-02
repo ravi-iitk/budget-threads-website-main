@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server"
-import { generateToken } from "@/lib/in-memory-db" // still useful for issuing session tokens
 import { getSupabaseServer } from "@/lib/supabase"
 
 export async function POST(request: Request) {
@@ -14,35 +13,25 @@ export async function POST(request: Request) {
       set: () => {},
     })
 
-    // 1. Find user in Supabase
-    const { data: user, error } = await supabase
-      .from("users")
-      .select("id, name, email, password, token")
-      .eq("email", email)
-      .maybeSingle()
+    // Sign in with email/password
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
-    if (error) throw error
-    if (!user || user.password !== password) {
-      return NextResponse.json({ message: "Invalid credentials" }, { status: 401 })
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 401 })
     }
 
-    // 2. Refresh token
-    const newToken = generateToken()
-    const { error: updateErr } = await supabase
-      .from("users")
-      .update({ token: newToken })
-      .eq("id", user.id)
-
-    if (updateErr) throw updateErr
-
-    // 3. Return response
     return NextResponse.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      token: newToken,
+      id: data.user?.id,
+      name: data.user?.user_metadata?.name,
+      email: data.user?.email,
+      access_token: data.session?.access_token,
+      refresh_token: data.session?.refresh_token,
     })
   } catch (e: any) {
     return NextResponse.json({ message: e.message || "Server error" }, { status: 500 })
   }
 }
+
