@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-import { generateId, generateToken } from "@/lib/in-memory-db" // we can still reuse id & token generator
-import { getSupabaseServer } from "@/lib/supabase" // helper you already used for cart
+import { getSupabaseServer } from "@/lib/supabase"
 
 export async function POST(request: Request) {
   try {
@@ -14,35 +13,26 @@ export async function POST(request: Request) {
       set: () => {},
     })
 
-    // 1. Check if user already exists
-    const { data: existing, error: findErr } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle()
-
-    if (findErr) throw findErr
-    if (existing) {
-      return NextResponse.json({ message: "Email already registered" }, { status: 409 })
-    }
-
-    // 2. Create new user
-    const token = generateToken()
-    const user = {
-      id: generateId("usr"),
-      name,
+    // Create new user in Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
       email,
-      password, // ⚠️ Ideally hash this before storing
-      token,
-      created_at: new Date().toISOString(),
+      password,
+      options: {
+        data: { name }, // will be stored in user_metadata
+      },
+    })
+
+    if (error) {
+      return NextResponse.json({ message: error.message }, { status: 400 })
     }
 
-    const { error: insertErr } = await supabase.from("users").insert(user)
-    if (insertErr) throw insertErr
-
-    // 3. Return response
-    return NextResponse.json({ id: user.id, name, email, token })
+    return NextResponse.json({
+      id: data.user?.id,
+      name: data.user?.user_metadata?.name,
+      email: data.user?.email,
+    })
   } catch (e: any) {
     return NextResponse.json({ message: e.message || "Server error" }, { status: 500 })
   }
 }
+
